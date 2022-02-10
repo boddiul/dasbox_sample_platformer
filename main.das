@@ -161,7 +161,7 @@ def draw(var sprite: Sprite; x:float; y:float)
     
     let ss := sprite.spritesheet
     let rect = float4(ss.frame_width*float(sprite.index % ss.vertical_num),ss.frame_height*float(sprite.index / ss.vertical_num),ss.frame_width,ss.frame_height)
-    let scale = float2(ss.frame_width,ss.frame_height)*PIXEL_SCALE
+    let scale = float2(ss.frame_width*sprite.scale.x,ss.frame_height*sprite.scale.y)*PIXEL_SCALE
     let m_angle = sprite.angle/180.0*PI
 
     
@@ -256,14 +256,18 @@ def make_enemy(var ai_type: AIType;var x,y : float)
 def make_player(id,x,y)
 
 
-    
+    var spr  = new_sprite("player",0,float2(0.5,0.5))
+
+    *spr |> add_animation("idle",new [{int 0}],0.0)
+    *spr |> add_animation("jump",new [{int 1}],0.0)
+    *spr |> add_animation("walk",new [{int 4;5;6;7}],0.2)
 
     create_entity <| @ ( eid, cmp ) 
         cmp |> set("eid", eid)
         cmp |> apply_decs_template([[CmpTransform position = float2(x,y)]])
         cmp |> apply_decs_template([[CmpPlayerControlled player_id = CURRENT_PLAYER_ID]])
         cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_type=false, gravity = 162.0, acc_speed=600.0,friction=-4.8, max_speed=80.0,jump_speed=130.0]])
-        cmp |> apply_decs_template([[CmpDraw sprite := new_sprite("player",0,float2(0.5,0.5))]]) 
+        cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
         
 
 
@@ -349,14 +353,30 @@ def initialize
 
 
 [decs(stage = update_actions)]
-def update_player_input(var player_controlled: CmpPlayerControlled; var player_physics: CmpPhysics; eid: EntityId)
+def update_player_input(var player_controlled: CmpPlayerControlled; var player_physics: CmpPhysics;var draw: CmpDraw;  eid: EntityId)
 
     let left_move = get_key(VK_LEFT) ? -1.0 : 0.0
     let right_move = get_key(VK_RIGHT) ? 1.0 : 0.0
     let jump =  get_key(VK_UP) ? 1.0 : 0.0
     let down =  get_key_down(VK_DOWN) ? -1.0 : 0.0
 
-    player_physics.movement = float2(left_move+right_move, jump+down)   
+
+    let vertical_move = left_move+right_move
+
+    if vertical_move!=0.0
+        if player_physics.on_ground
+            *draw.sprite |> animation_play("walk",false)
+        else
+            *draw.sprite |> animation_play("jump",false)
+    else
+        *draw.sprite |> animation_play("idle",false)
+
+    if vertical_move>0.0
+        draw.sprite.scale = float2(1,1)
+    if vertical_move<0.0
+        draw.sprite.scale = float2(-1,1)
+
+    player_physics.movement = float2(vertical_move, jump+down)   
 
 
 
@@ -398,9 +418,11 @@ def update_physics(var entity_physics: CmpPhysics; var entity_transform: CmpTran
 
     if entity_physics.velocity.x > entity_physics.max_speed
         entity_physics.velocity.x=entity_physics.max_speed
+
     
     if entity_physics.velocity.x < -entity_physics.max_speed
         entity_physics.velocity.x=-entity_physics.max_speed
+
 
 
     entity_physics.velocity.y+=entity_physics.gravity * dt
