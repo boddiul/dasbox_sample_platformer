@@ -45,7 +45,7 @@ struct MapBlock
 var map : array<array<MapBlock?>>
 var back : Sprite?
 var camera_offset :float2
-
+var map_size : int2
 
 let 
     BLOCK_SIZE = 16.0
@@ -86,8 +86,8 @@ struct CmpPhysics
     
 [decs_template]
 struct CmpCamera
-    follow:EntityId?
-    borders:float4
+    follow_player:bool
+    border:float2
 
 [decs_template]
 struct CmpPlayerControlled
@@ -215,13 +215,16 @@ def set_index(var sprite:Sprite; index:int)
 
 
 
-def make_camera(x,y,borders)
+def make_camera(x,y,border)
+
+    camera_offset = float2(0,0)
+
 
 
     create_entity <| @ ( eid, cmp ) 
         cmp |> set("eid", eid)
         cmp |> apply_decs_template([[CmpTransform position = float2(x,y)]])
-        cmp |> apply_decs_template([[CmpCamera follow = null,borders = borders]])
+        cmp |> apply_decs_template([[CmpCamera follow_player = true,border = border]])
 
 
 def make_enemy(var ai_type: AIType;var x,y : float)
@@ -282,10 +285,6 @@ def initialize
     set_window_title("Sample Game Platormer")
 
     
-    camera_offset = float2(0,0)
-
-    
-
 
     add_spritesheet("tiles1","tiles.png",16,16)
     add_spritesheet("back","back.png",int(BACK_SIZE),int(BACK_SIZE))
@@ -301,9 +300,11 @@ def initialize
     
     var a : array<MapBlock?>
     
-
+    map_size = int2(0,0)
     var y = 0 
     var x = 0
+
+
     for ch in ss
 
 
@@ -340,10 +341,16 @@ def initialize
             a |> push(null)
         
         x+=1
+
+
+        if x>map_size.x
+            map_size.x = x
+        if y>map_size.y
+            map_size.y = y 
         
 
 
-    make_camera(0,0,float4(0.0,0.0,30.0*PIXEL_SCALE,30.0*PIXEL_SCALE))
+    make_camera(0,0,float2(float(map_size.x)*BLOCK_SIZE,float(map_size.y)*BLOCK_SIZE))
     
 
     commit()
@@ -486,10 +493,29 @@ def update_physics(var entity_physics: CmpPhysics; var entity_transform: CmpTran
 
     entity_physics.movement = float2(0,0)
     
+[decs(stage = update_camera)]
+def update_camera(var cam: CmpCamera; var cam_transform: CmpTransform)
 
-[decs(stage = update_camera_offset)]
-def update_camera_offset(var camera: CmpCamera; var camera_transform: CmpTransform)
-    camera_offset = -camera_transform.position
+
+
+    var cam_width = float(get_screen_width())/PIXEL_SCALE
+    var cam_height = float(get_screen_height())/PIXEL_SCALE
+
+
+
+    if cam.follow_player
+        query <| $ (pl_controlled: CmpPlayerControlled; pl_transform: CmpTransform; eid: EntityId)
+            cam_transform.position = pl_transform.position-float2(cam_width,cam_height)/2.0
+
+        cam_transform.position.x = clamp(cam_transform.position.x,0.0,cam.border.x-cam_width)
+        cam_transform.position.y = clamp(cam_transform.position.y,0.0,cam.border.y-cam_height)
+    
+
+    camera_offset = -cam_transform.position
+
+
+
+
 
 def draw_back()
     let back_offset_x = camera_offset.x*0.8
@@ -544,6 +570,9 @@ def act(dt: float)
     decs_stage("update_animations")
     commit()
 
+    
+    decs_stage("update_camera")
+    commit()
 
     if get_key(VK_ESCAPE)
         schedule_quit_game()
@@ -557,8 +586,6 @@ def draw
 
 
 
-    decs_stage("update_camera_offset")
-    commit()
     draw_back()
     //commit()
     enable_alpha_blend()
