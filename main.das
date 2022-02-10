@@ -348,7 +348,7 @@ def initialize
 
 
 
-[decs(stage = update_input)]
+[decs(stage = update_actions)]
 def update_player_input(var player_controlled: CmpPlayerControlled; var player_physics: CmpPhysics; eid: EntityId)
 
     let left_move = get_key(VK_LEFT) ? -1.0 : 0.0
@@ -379,11 +379,8 @@ def init_ai(var ai: CmpAIControlled;var draw: CmpDraw; eid: EntityId)
 
 
 
-[decs(stage = update_ai)]
+[decs(stage = update_actions)]
 def update_enemy_ai(var ai: CmpAIControlled; var enemy_physics: CmpPhysics; eid: EntityId)
-
-
-
 
     enemy_physics.movement = float2(1.0, 1.0)  
 
@@ -515,15 +512,12 @@ def draw_entities(var entity_draw: CmpDraw; var entity_transform: CmpTransform; 
 [export]
 def act(dt: float)
 
-    decs_stage("update_input")
+    decs_stage("update_actions")
     commit()
 
-    decs_stage("update_ai")
-    commit()
 
     decs_stage("update_physics")
     commit()
-
 
     decs_stage("update_animations")
     commit()
