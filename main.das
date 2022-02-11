@@ -406,9 +406,9 @@ def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
         let col_block = get_block(float2(collision_pos_x, transform.position.y))
         let col_block_cx = BLOCK_SIZE * (0.5 + float(int(collision_pos_x / BLOCK_SIZE)))
 
-        let empty_block = col_block == null 
+        let empty_space = col_block == null 
 
-        if empty_block || col_block.platform
+        if empty_space || col_block.platform
             transform.position.x += dx 
         else
             transform.position.x = col_block_cx - (BLOCK_SIZE + phys.size) * 0.5 * dir_x
@@ -419,13 +419,22 @@ def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
 
         let collision_pos_y = transform.position.y + dy + dir_y * phys.size * 0.5
 
-        let col_block = get_block(float2(transform.position.x, collision_pos_y))
+        var col_block_left = get_block(float2(transform.position.x-phys.size*0.4, collision_pos_y))
+        var col_block_right = get_block(float2(transform.position.x+phys.size*0.4, collision_pos_y))
+
         let col_block_cy = BLOCK_SIZE * (0.5 + float(int(collision_pos_y / BLOCK_SIZE)))
         
-        let empty_block = col_block == null
+        let empty_space = col_block_left == null && col_block_right == null
+
+        let platform_left = col_block_left != null && col_block_left.platform
+        let platform_right = col_block_right != null && col_block_right.platform
+
+        let platform_collision = (platform_left && platform_right) || (platform_left && col_block_right == null) || (platform_right && col_block_left == null)
+
         let below_platform = transform.position.y + phys.size * 0.5 > col_block_cy - BLOCK_SIZE * 0.5
 
-        if empty_block || (col_block.platform && (skip_platform || dir_y < 0.0 || (dir_y > 0.0 && below_platform)))
+
+        if empty_space || (platform_collision && (skip_platform || dir_y < 0.0 || (dir_y > 0.0 && below_platform)))
             transform.position.y += dy
             phys.on_ground = false
         else
