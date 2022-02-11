@@ -163,8 +163,8 @@ def draw(var sprite: Sprite; x, y: float)
     var px =  xx * cos(m_angle) - yy * sin(m_angle)
     var py =  xx * sin(m_angle) + yy * cos(m_angle)
     
-    textures[ss.texture_id] |> draw_image_transformed((x + px) * PIXEL_SCALE,
-                                                        (y + py) * PIXEL_SCALE,
+    textures[ss.texture_id] |> draw_image_transformed((floor(x) + px) * PIXEL_SCALE,
+                                                        (floor(y) + py) * PIXEL_SCALE,
                                                         rect, make_color(1.0), scale, m_angle)
 
 
