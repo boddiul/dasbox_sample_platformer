@@ -92,7 +92,14 @@ struct CmpCamera
 [decs_template]
 struct CmpPlayerControlled
     player_id: int
-    
+
+
+[decs_template]
+struct CmpHealth
+    hp : float
+    hit_cooldown : float
+    dead : bool
+
 
 enum AIType
     None
@@ -219,37 +226,46 @@ def make_camera(x, y: float; border: float2)
 
 
 def make_enemy(ai_type: AIType; x, y: float)
-    var spr: Sprite?
-    var phys: CmpPhysics
-
-    if ai_type == AIType Walker
-        spr = new_sprite("walker", 0, float2(0.5, 0.5))
-        *spr |> add_animation("walk", new [{int 0; 1}], 0.1)
-        phys = [[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
-                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 0.0]]
-        
-    elif ai_type == AIType Bat
-        spr = new_sprite("bat", 0, float2(0.5, 0.5))
-        *spr |> add_animation("fly", new [{int 0; 1; 2}], 0.1)
-        phys = [[CmpPhysics size = 16.0, fly_mode = true,
-                acc_speed = 600.0, friction = 0.0, max_speed = 30.0]]
-
-    elif ai_type == AIType Slime
-        spr = new_sprite("slime", 0, float2(0.5, 0.5))
-        *spr |> add_animation("idle", new [{int 0; 1}], 0.1)
-        *spr |> add_animation("jump_up", new [{int 5}], 0.0)
-        *spr |> add_animation("jump_down", new [{int 6}], 0.0)
-
-        phys = [[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
-                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 130.0]]
-
+    
     create_entity <| @ ( eid, cmp ) 
+
+        var spr: Sprite?
+        var hp = 0.0
+
         cmp |> set("eid", eid)
         cmp |> apply_decs_template([[CmpTransform position = float2(x, y)]])
-        cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
-        cmp |> apply_decs_template(phys)
-        cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type]]) 
         
+        if ai_type == AIType Walker
+            spr = new_sprite("walker", 0, float2(0.5, 0.5))
+            *spr |> add_animation("walk", new [{int 0; 1}], 0.1)
+            *spr |> animation_play("walk", true, true)
+            cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "walk_left"]]) 
+            cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
+                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 0.0]])
+            hp = 2.0
+
+        elif ai_type == AIType Bat
+            spr = new_sprite("bat", 0, float2(0.5, 0.5))
+            *spr |> add_animation("fly", new [{int 0; 1; 2}], 0.1)
+            *spr |> animation_play("fly", true, true)
+            cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "fly", timer <- {{"new_dir" => 0.0}}]]) 
+            cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = true,
+                acc_speed = 600.0, friction = 0.0, max_speed = 30.0]])
+            hp = 1.0
+
+        elif ai_type == AIType Slime
+            spr = new_sprite("slime", 0, float2(0.5, 0.5))
+            *spr |> add_animation("idle", new [{int 0; 1}], 0.1)
+            *spr |> add_animation("jump_up", new [{int 5}], 0.0)
+            *spr |> add_animation("jump_down", new [{int 6}], 0.0)
+            *spr |> animation_play("idle", true, true)
+            cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "idle", timer <- {{"jump_cooldown" => 0.0}}]]) 
+            cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
+                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 130.0]])
+            hp = 1.0
+
+        cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
+        cmp |> apply_decs_template([[CmpHealth hp = hp, hit_cooldown = 0.0, dead = false]])
 
 def make_player(id: int; x, y: float)
     var spr  = new_sprite("player", 0, float2(0.5, 0.5))
@@ -265,6 +281,7 @@ def make_player(id: int; x, y: float)
         cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_mode = false, gravity = 162.0, acc_speed = 600.0, 
                                         friction = -4.8, max_speed = 80.0, jump_speed = 130.0]])
         cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
+        cmp |> apply_decs_template([[CmpHealth hp = 10.0, hit_cooldown = 0.0, dead = false]])
         
 
 // 'initialize' runs once when game starts and every hot-reload
@@ -344,8 +361,6 @@ def initialize
     make_camera(0.0, 0.0, float2(float(map_size.x) * BLOCK_SIZE, float(map_size.y) * BLOCK_SIZE))
     commit()
 
-    decs_stage("init_ai")
-    commit()
 
 
 [decs(stage = update_actions)]
@@ -371,23 +386,6 @@ def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; v
         draw.sprite.scale = float2(-1,1)
 
     phys.movement = float2(vertical_move, jump + down)   
-
-
-[decs(stage = init_ai)]
-def init_enemy_ai(var ai: CmpAIControlled; var draw: CmpDraw)
-    if ai.ai_type == AIType Walker
-        ai.state = "walk_left"
-        *draw.sprite |> animation_play("walk", true, true)
-        
-    elif ai.ai_type == AIType Bat
-        ai.state = "fly"
-        *draw.sprite |> animation_play("fly", true, true)
-        ai.timer["new_dir"] = 0.0
-
-    elif ai.ai_type == AIType Slime
-        ai.state = "idle"
-        *draw.sprite |> animation_play("idle", true, true)
-        ai.timer["jump_cooldown"] = 0.0
 
 
 [decs(stage = update_actions)]
