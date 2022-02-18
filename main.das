@@ -64,6 +64,7 @@ struct CmpTransform
 [decs_template]
 struct CmpDraw
     sprite: Sprite?
+    visible: bool
 
 
 [decs_template]
@@ -76,6 +77,7 @@ struct CmpPhysics
     on_ground: bool
 
     movement: float2
+    hit_force : float2
 
     acc_speed: float
     max_speed: float
@@ -264,7 +266,7 @@ def make_enemy(ai_type: AIType; x, y: float)
                 acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 130.0]])
             hp = 1.0
 
-        cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
+        cmp |> apply_decs_template([[CmpDraw sprite = spr, visible = true]]) 
         cmp |> apply_decs_template([[CmpHealth hp = hp, hit_cooldown = 0.0, dead = false]])
 
 def make_player(id: int; x, y: float)
@@ -280,8 +282,8 @@ def make_player(id: int; x, y: float)
         cmp |> apply_decs_template([[CmpPlayerControlled player_id = id]])
         cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_mode = false, gravity = 162.0, acc_speed = 600.0, 
                                         friction = -4.8, max_speed = 80.0, jump_speed = 130.0]])
-        cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
-        cmp |> apply_decs_template([[CmpHealth hp = 10.0, hit_cooldown = 0.0, dead = false]])
+        cmp |> apply_decs_template([[CmpDraw sprite = spr, visible = true]]) 
+        cmp |> apply_decs_template([[CmpHealth hp = 5.0, hit_cooldown = 0.0, dead = false]])
         
 
 // 'initialize' runs once when game starts and every hot-reload
@@ -462,6 +464,17 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
         draw.sprite.scale.x = dir
 
 
+[decs(stage = update_collisions)]
+def update_player_enemies_collisions(var ai: CmpAIControlled; var health: CmpHealth; var phys: CmpPhysics; var transform: CmpTransform)
+
+    query <| $ (pl_controlled: CmpPlayerControlled; var pl_health: CmpHealth; var pl_phys: CmpPhysics; pl_transform: CmpTransform)
+        if pl_health.hit_cooldown <= 0.0
+            if length(pl_transform.position - transform.position) <= 0.8 * phys.size / 2.0 + 0.8 * pl_phys.size / 2.0
+                pl_health.hp -= 1.0
+                pl_health.hit_cooldown = 1.0
+                pl_phys.hit_force = pl_transform.position - transform.position
+
+
 [decs(stage = update_physics)]
 def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
     let dt = get_delta_time()
@@ -471,6 +484,10 @@ def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
 
     var skip_platform = false
 
+
+    var hit_acc = normalize(phys.hit_force) * 300.0
+    hit_acc.y = 0.33 * hit_acc.y
+    phys.velocity += hit_acc
 
     if phys.fly_mode
         acc_x = phys.movement.x * phys.acc_speed
@@ -549,6 +566,7 @@ def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
                 phys.on_ground = true
             else
                 phys.on_ground = false
+    phys.hit_force = float2(0.0, 0.0)
 
 
 [decs(stage = update_camera)]
@@ -572,9 +590,26 @@ def update_animations(var draw: CmpDraw)
     *draw.sprite |> update(dt)
 
 
+[decs(stage = post_update)]
+def update_health(var health: CmpHealth; var draw: CmpDraw; eid: EntityId)
+    let dt = get_delta_time()
+
+    if health.hp <= 0.0
+        health.dead = true
+
+    if health.hit_cooldown > 0.0
+        draw.visible = int(health.hit_cooldown * 20.0) % 2 == 0
+        health.hit_cooldown -= dt
+    else
+        draw.visible = true
+        if health.hp <= 0.0
+            delete_entity(eid)
+
+
 [decs(stage = draw_entities)]
 def draw_entities(var draw: CmpDraw; var transform: CmpTransform)
-    *draw.sprite |> draw(view_position.x + transform.position.x, view_position.y + transform.position.y)
+    if draw.visible
+        *draw.sprite |> draw(view_position.x + transform.position.x, view_position.y + transform.position.y)
 
 
 def draw_back()
@@ -598,6 +633,9 @@ def act(dt: float)
     decs_stage("update_actions")
     commit()
 
+    decs_stage("update_collisions")
+    commit()
+
     decs_stage("update_physics")
     commit()
 
@@ -605,6 +643,9 @@ def act(dt: float)
     commit()
 
     decs_stage("update_camera")
+    commit()
+
+    decs_stage("post_update")
     commit()
 
     if get_key(VK_ESCAPE)
