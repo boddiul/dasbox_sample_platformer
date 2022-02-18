@@ -30,6 +30,7 @@ struct Sprite
     anim_index: float
     anim_current: string
     anim_active: bool
+    anim_loop : bool
 
 
 struct MapBlock
@@ -44,6 +45,7 @@ var map: array<array<MapBlock?>>
 var back: Sprite?
 var view_position: float2
 var map_size: int2
+var debug_text : float
 
 
 let 
@@ -51,6 +53,8 @@ let
     BACK_SIZE = 40.0
     PIXEL_SCALE = 3.0
 
+var
+    RAND_SEED = random_seed(0)
 
 [decs_template]
 struct CmpTransform
@@ -66,7 +70,7 @@ struct CmpDraw
 struct CmpPhysics
     size: float
     gravity: float
-    fly_type: bool
+    fly_mode: bool
 
     velocity: float2 
     on_ground: bool
@@ -166,13 +170,22 @@ def draw(var sprite: Sprite; x, y: float)
     textures[ss.texture_id] |> draw_image_transformed((floor(x) + px) * PIXEL_SCALE,
                                                         (floor(y) + py) * PIXEL_SCALE,
                                                         rect, make_color(1.0), scale, m_angle)
+    
+    //if sprite.anim_active
+        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{*sprite.anim_frames[sprite.anim_current]}", 0xFFF0F0F0)
+        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{sprite.anim_current}", 0xFFF0F0F0)
 
 
 def update(var sprite: Sprite; dt: float)
     if sprite.anim_active
         sprite.anim_index += sprite.anim_speed[sprite.anim_current] * dt * 60.0
-        var frame = int(sprite.anim_index) % length(*sprite.anim_frames[sprite.anim_current])
-        sprite.index = (*sprite.anim_frames[sprite.anim_current])[frame]
+        let total = length(*sprite.anim_frames[sprite.anim_current])
+        let frame = int(sprite.anim_index) % total
+
+        if !sprite.anim_loop && frame >= total
+            sprite.anim_active = false
+        else
+            sprite.index = (*sprite.anim_frames[sprite.anim_current])[frame]
 
 
 def add_animation(var sprite: Sprite; name: string; frames: array<int>?; speed: float)
@@ -180,11 +193,12 @@ def add_animation(var sprite: Sprite; name: string; frames: array<int>?; speed: 
     sprite.anim_speed[name] = speed
 
 
-def animation_play(var sprite: Sprite; name: string; reset: bool)
+def animation_play(var sprite: Sprite; name: string; loop: bool; reset: bool)
     if reset
         sprite.anim_index = 0.0
     sprite.anim_current = name
     sprite.anim_active = true
+    sprite.anim_loop = loop
 
 
 def animation_stop(var sprite: Sprite)
@@ -211,19 +225,22 @@ def make_enemy(ai_type: AIType; x, y: float)
     if ai_type == AIType Walker
         spr = new_sprite("walker", 0, float2(0.5, 0.5))
         *spr |> add_animation("walk", new [{int 0; 1}], 0.1)
-        phys = [[CmpPhysics size = 16.0, fly_type = false, gravity = 162.0,
-                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 40.0]]
+        phys = [[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
+                acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 0.0]]
         
     elif ai_type == AIType Bat
         spr = new_sprite("bat", 0, float2(0.5, 0.5))
         *spr |> add_animation("fly", new [{int 0; 1; 2}], 0.1)
-        phys = [[CmpPhysics size = 16.0, fly_type = true,
-                acc_speed = 600.0, friction = -4.8, max_speed = 80.0]]
+        phys = [[CmpPhysics size = 16.0, fly_mode = true,
+                acc_speed = 600.0, friction = 0.0, max_speed = 30.0]]
 
     elif ai_type == AIType Slime
         spr = new_sprite("slime", 0, float2(0.5, 0.5))
         *spr |> add_animation("idle", new [{int 0; 1}], 0.1)
-        phys = [[CmpPhysics size = 16.0, fly_type = false, gravity = 162.0,
+        *spr |> add_animation("jump_up", new [{int 5}], 0.0)
+        *spr |> add_animation("jump_down", new [{int 6}], 0.0)
+
+        phys = [[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
                 acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 130.0]]
 
     create_entity <| @ ( eid, cmp ) 
@@ -245,7 +262,7 @@ def make_player(id: int; x, y: float)
         cmp |> set("eid", eid)
         cmp |> apply_decs_template([[CmpTransform position = float2(x, y)]])
         cmp |> apply_decs_template([[CmpPlayerControlled player_id = id]])
-        cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_type = false, gravity = 162.0, acc_speed = 600.0, 
+        cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_mode = false, gravity = 162.0, acc_speed = 600.0, 
                                         friction = -4.8, max_speed = 80.0, jump_speed = 130.0]])
         cmp |> apply_decs_template([[CmpDraw sprite = spr]]) 
         
@@ -342,11 +359,11 @@ def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; v
 
     if vertical_move != 0.0
         if phys.on_ground
-            *draw.sprite |> animation_play("walk", false)
+            *draw.sprite |> animation_play("walk", true, false)
         else
-            *draw.sprite |> animation_play("jump", false)
+            *draw.sprite |> animation_play("jump", true, false)
     else
-        *draw.sprite |> animation_play("idle", false)
+        *draw.sprite |> animation_play("idle", true, false)
 
     if vertical_move > 0.0
         draw.sprite.scale = float2(1,1)
@@ -357,46 +374,135 @@ def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; v
 
 
 [decs(stage = init_ai)]
-def init_ai(var ai: CmpAIControlled; var draw: CmpDraw)
+def init_enemy_ai(var ai: CmpAIControlled; var draw: CmpDraw)
     if ai.ai_type == AIType Walker
-        ai.state = "walk"
-        *draw.sprite |> animation_play("walk", true)
+        ai.state = "walk_left"
+        *draw.sprite |> animation_play("walk", true, true)
         
     elif ai.ai_type == AIType Bat
         ai.state = "fly"
-        *draw.sprite |> animation_play("fly", true)
+        *draw.sprite |> animation_play("fly", true, true)
+        ai.timer["new_dir"] = 0.0
 
     elif ai.ai_type == AIType Slime
-        ai.state = "jump_ready"
+        ai.state = "idle"
+        *draw.sprite |> animation_play("idle", true, true)
+        ai.timer["jump_cooldown"] = 0.0
 
 
 [decs(stage = update_actions)]
-def update_enemy_ai(var ai: CmpAIControlled; var phys: CmpPhysics)
-    phys.movement = float2(1.0, 1.0)  
+def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var phys: CmpPhysics; var draw: CmpDraw)
+    let dt = get_delta_time()
+
+    for k in keys(ai.timer)
+        ai.timer[k] -= dt
+
+    var player_distance = FLT_MAX
+    var player_position = float2(0, 0)
+    var player_found = false
+
+    query <| $ (pl_controlled: CmpPlayerControlled; pl_transform: CmpTransform)
+        player_position = pl_transform.position
+        player_distance = length(player_position - transform.position)
+        player_found = true
+
+    if ai.ai_type == AIType Walker
+
+        var dir = ai.state == "walk_left" ? -1.0 : 1.0
+        var next_block = get_block(float2(transform.position.x + BLOCK_SIZE * 0.6 * dir, transform.position.y))
+        var next_block_below = get_block(float2(transform.position.x + BLOCK_SIZE * 0.6 * dir, transform.position.y + BLOCK_SIZE))
+
+        if next_block != null || (next_block == null && next_block_below == null)
+            dir = -dir
+            if ai.state == "walk_left"
+                ai.state = "walk_right"
+            else
+                ai.state = "walk_left"
+    
+        phys.movement = float2(dir, 0.0)  
+        draw.sprite.scale.x = dir
+            
+    elif ai.ai_type == AIType Bat
+
+        debug_text = ai.timer["new_dir"]
+        
+        if ai.timer["new_dir"] <= 0.0
+
+            var new_dir = float2(2.0*random_float(RAND_SEED)-1.0, 2.0*random_float(RAND_SEED)-1.0) 
+            new_dir = normalize(new_dir)
+
+            phys.movement = new_dir
+            ai.timer["new_dir"] = 0.5
+
+    elif ai.ai_type == AIType Slime
+
+        var dir = 1.0
+        var next_block = get_block(float2(transform.position.x + BLOCK_SIZE * 0.6 * dir, transform.position.y))
+        if next_block != null
+            dir = -1.0
+
+        if player_found && player_distance < BLOCK_SIZE * 5.0
+            dir = transform.position.x > player_position.x ? -1.0 : 1.0
+
+        if ai.state == "idle"
+            *draw.sprite |> animation_play("idle", true, false)
+            if ai.timer["jump_cooldown"] <= 0.0 && phys.on_ground
+                phys.movement = float2(dir, 1.0) 
+                ai.state = "jumping"
+            else
+                phys.movement = float2(0.0, 0.0)  
+            
+        elif ai.state == "jumping"
+            *draw.sprite |> animation_play(phys.velocity.y < 0.0 ? "jump_up" : "jump_down", true, false)
+            
+            if phys.on_ground
+                ai.state = "idle"
+                ai.timer["jump_cooldown"] = 3.0
+
+            phys.movement.y = 0.0
+            
+        draw.sprite.scale.x = dir
 
 
 [decs(stage = update_physics)]
 def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
     let dt = get_delta_time()
 
-    var acc_x = phys.movement.x * phys.acc_speed
-    acc_x += phys.velocity.x * phys.friction
-    phys.velocity.x += acc_x * dt
+    var acc_x = 0.0
+    var acc_y = 0.0
 
-    phys.velocity.x = clamp(phys.velocity.x, -phys.max_speed, phys.max_speed)
-
-    phys.velocity.y += phys.gravity * dt
-
-    if phys.on_ground 
-        if phys.movement.y > 0.0
-            phys.velocity.y -= phys.jump_speed
-    
     var skip_platform = false
-    if phys.movement.y < 0.0
+
+
+    if phys.fly_mode
+        acc_x = phys.movement.x * phys.acc_speed
+        acc_y = phys.movement.y * phys.acc_speed
+        phys.velocity.x += acc_x * dt
+        phys.velocity.y += acc_y * dt
+        phys.velocity.x = clamp(phys.velocity.x, -phys.max_speed, phys.max_speed)
+        phys.velocity.y = clamp(phys.velocity.y, -phys.max_speed, phys.max_speed)
         skip_platform = true
 
+    else
+        acc_x = phys.movement.x * phys.acc_speed
+        acc_x += phys.velocity.x * phys.friction
+        phys.velocity.x += acc_x * dt
+
+        phys.velocity.x = clamp(phys.velocity.x, -phys.max_speed, phys.max_speed)
+
+        phys.velocity.y += phys.gravity * dt
+
+        if phys.on_ground 
+            if phys.movement.y > 0.0
+                phys.velocity.y -= phys.jump_speed
+        
+        if phys.movement.y < 0.0
+            skip_platform = true
+        
+        acc_y = phys.gravity
+
     var dx = phys.velocity.x * dt + acc_x * 0.5 * dt * dt
-    var dy = phys.velocity.y * dt + phys.gravity * 0.5 * dt * dt
+    var dy = phys.velocity.y * dt + acc_y * 0.5 * dt * dt
 
     if (dx != 0.0)
         var dir_x = dx > 0.0 ? 1.0 : -1.0
@@ -446,8 +552,6 @@ def update_physics(var phys: CmpPhysics; var transform: CmpTransform)
             else
                 phys.on_ground = false
 
-    phys.movement = float2(0, 0)
-    
 
 [decs(stage = update_camera)]
 def update_camera(var cam: CmpCamera; var transform: CmpTransform)
@@ -521,8 +625,7 @@ def draw
     draw_tiles()
     //commit()
 
-    //text_out(100,80, "test {spritesheets["back"]}", 0xFFF0F0F0)
-    //text_out(100,100, "test {spritesheets["tiles1"]}", 0xFFF0F0F0)
+    //text_out(100,80, "test {debug_text}", 0xFFF0F0F0)
     decs_stage("draw_entities")
     commit()
 
