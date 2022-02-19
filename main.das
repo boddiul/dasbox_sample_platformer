@@ -25,7 +25,7 @@ struct Sprite
     anchor: float2
     angle: float
 
-    anim_frames: table<string; array<int>?>
+    anim_frames: table<string; array<int>?>?
     anim_speed: table<string; float>
     anim_index: float
     anim_current: string
@@ -157,7 +157,7 @@ def get_block(point: float2) : MapBlock?
 def new_sprite(spritesheet_id: string; start_index: int; anchor: float2)
     return <- new [[Sprite spritesheet := spritesheets[spritesheet_id], index = start_index, 
                     scale = float2(1.0, 1.0), anchor = anchor, angle = 0.0,
-                    anim_active = false, anim_index = 0.0, anim_current = ""]]
+                    anim_active = false, anim_index = 0.0, anim_current = "", anim_frames = new [[table<string; array<int>?>]] ]]
 
 
 def draw(var sprite: Sprite; x, y: float)
@@ -181,24 +181,24 @@ def draw(var sprite: Sprite; x, y: float)
                                                         rect, make_color(1.0), scale, m_angle)
     
     //if sprite.anim_active
-        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{*sprite.anim_frames[sprite.anim_current]}", 0xFFF0F0F0)
+        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{(*sprite.anim_frames)[sprite.anim_current]}", 0xFFF0F0F0)
         //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{sprite.anim_current}", 0xFFF0F0F0)
 
 
 def update(var sprite: Sprite; dt: float)
     if sprite.anim_active
         sprite.anim_index += sprite.anim_speed[sprite.anim_current] * dt * 60.0
-        let total = length(*sprite.anim_frames[sprite.anim_current])
+        let total = length(*(*sprite.anim_frames)[sprite.anim_current])
         let frame = int(sprite.anim_index) % total
 
         if !sprite.anim_loop && frame >= total
             sprite.anim_active = false
         else
-            sprite.index = (*sprite.anim_frames[sprite.anim_current])[frame]
+            sprite.index = (*(*sprite.anim_frames)[sprite.anim_current])[frame]
 
 
 def add_animation(var sprite: Sprite; name: string; frames: array<int>?; speed: float)
-    sprite.anim_frames[name] := frames
+    (*sprite.anim_frames)[name] := new [{int 0;1}]
     sprite.anim_speed[name] = speed
 
 
