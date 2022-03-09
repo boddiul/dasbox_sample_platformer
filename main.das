@@ -18,23 +18,10 @@ struct SpriteSheet
 var spritesheets: table<string; SpriteSheet?>
 
 
-struct Sprite
-    spritesheet: SpriteSheet?
-    index: int
-    scale: float2
-    anchor: float2
-    angle: float
-
-    anim_frames: table<string; array<int>?>?
-    anim_speed: table<string; float>
-    anim_index: float
-    anim_current: string
-    anim_active: bool
-    anim_loop : bool
-
-
 struct MapBlock
-    sprite: Sprite?
+    spritesheet_id : string
+    sprite_index : int
+
     solid: bool
     platform: bool
     breakable: bool
@@ -42,7 +29,7 @@ struct MapBlock
 
 
 var map: array<array<MapBlock?>>
-var back: Sprite?
+
 var view_position: float2
 var map_size: int2
 var debug_text : float
@@ -62,8 +49,20 @@ struct CmpTransform
 
 
 [decs_template]
-struct CmpDraw
-    sprite: Sprite?
+struct CmpSprite
+    spritesheet_id : string
+    index: int
+    scale: float2
+    anchor: float2
+    angle: float
+
+    anim_frames: table<string; array<int>?>?
+    anim_speed: table<string; float>
+    anim_index: float
+    anim_current: string
+    anim_active: bool
+    anim_loop : bool
+
     visible: bool
 
 
@@ -118,7 +117,7 @@ struct CmpAIControlled
     state: string
     
 
-def add_spritesheet(id: string; file_name: string; frame_width: int; frame_height: int)
+def add_spritesheet(var id: string; var file_name: string; frame_width: int; frame_height: int)
     let tid = length(textures)
 
     textures[id] <- create_managed_image(file_name)
@@ -129,10 +128,9 @@ def add_spritesheet(id: string; file_name: string; frame_width: int; frame_heigh
                                 vertical_num = textures[id].width / frame_width]]
 
 
-def new_mapblock(spritesheet_id: string; texture_index: int; angle: float; solid: bool; platform: bool; breakable: bool; hit_points: int)
-    var mb = new [[MapBlock sprite <- new_sprite(spritesheet_id, texture_index, float2(0.0, 0.0)),
+def new_mapblock(var spritesheet_id: string; sprite_index: int; solid: bool; platform: bool; breakable: bool; hit_points: int)
+    var mb = new [[MapBlock spritesheet_id = spritesheet_id, sprite_index = sprite_index,
                 solid = solid, platform = platform, breakable = breakable, hit_points = hit_points]]
-    mb.sprite.angle = angle
     return <- mb
 
 
@@ -154,68 +152,42 @@ def get_block(point: float2) : MapBlock?
     return map[p.y][p.x]
         
 
-def new_sprite(spritesheet_id: string; start_index: int; anchor: float2)
-    return <- new [[Sprite spritesheet := spritesheets[spritesheet_id], index = start_index, 
-                    scale = float2(1.0, 1.0), anchor = anchor, angle = 0.0,
-                    anim_active = false, anim_index = 0.0, anim_current = "", anim_frames = new [[table<string; array<int>?>]] ]]
 
-
-def draw(var sprite: Sprite; x, y: float)
-    let ss := sprite.spritesheet
-    let rect = float4(float(ss.frame_width * (sprite.index % ss.vertical_num)),
-                    float(ss.frame_height * (sprite.index / ss.vertical_num)),
+def draw_sprite(var spritesheet_id: string; index: int; scale: float2; anchor: float2; angle: float; position: float2; debug_text: string const implicit)
+    
+    let ss := spritesheets[spritesheet_id]
+    
+    let rect = float4(float(ss.frame_width * (index % ss.vertical_num)),
+                    float(ss.frame_height * (index / ss.vertical_num)),
                     float(ss.frame_width),
                     float(ss.frame_height))
 
-    let scale = float2(float(ss.frame_width) * sprite.scale.x, float(ss.frame_height) * sprite.scale.y) * PIXEL_SCALE
-    let m_angle = sprite.angle / 180.0 * PI
+    let draw_scale = float2(float(ss.frame_width) * scale.x, float(ss.frame_height) * scale.y) * PIXEL_SCALE
+    let m_angle = angle / 180.0 * PI
 
-    var xx = (0.5 - sprite.anchor.x) * float(ss.frame_width)
-    var yy = (0.5 - sprite.anchor.y) * float(ss.frame_height)
+    var xx = (0.5 - anchor.x) * float(ss.frame_width)
+    var yy = (0.5 - anchor.y) * float(ss.frame_height)
     
     var px =  xx * cos(m_angle) - yy * sin(m_angle)
     var py =  xx * sin(m_angle) + yy * cos(m_angle)
     
-    textures[ss.texture_id] |> draw_image_transformed((floor(x) + px) * PIXEL_SCALE,
-                                                        (floor(y) + py) * PIXEL_SCALE,
-                                                        rect, make_color(1.0), scale, m_angle)
+    textures[ss.texture_id] |> draw_image_transformed((floor(position.x) + px) * PIXEL_SCALE,
+                                                        (floor(position.y) + py) * PIXEL_SCALE,
+                                                        rect, make_color(1.0), draw_scale, m_angle)
     
-    //if sprite.anim_active
-        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{(*sprite.anim_frames)[sprite.anim_current]}", 0xFFF0F0F0)
-        //text_out((floor(x) + px) * PIXEL_SCALE, (floor(y) + py) * PIXEL_SCALE, "{sprite.anim_current}", 0xFFF0F0F0)
+    if debug_text != ""
+        text_out((floor(position.x) + px) * PIXEL_SCALE,                                 
+                (floor(position.y) + py) * PIXEL_SCALE,
+                "{debug_text}", 0xFFF0F0F0)
 
 
-def update(var sprite: Sprite; dt: float)
-    if sprite.anim_active
-        sprite.anim_index += sprite.anim_speed[sprite.anim_current] * dt * 60.0
-        let total = length(*(*sprite.anim_frames)[sprite.anim_current])
-        let frame = int(sprite.anim_index) % total
-
-        if !sprite.anim_loop && frame >= total
-            sprite.anim_active = false
-        else
-            sprite.index = (*(*sprite.anim_frames)[sprite.anim_current])[frame]
-
-
-def add_animation(var sprite: Sprite; name: string; frames: array<int>?; speed: float)
-    (*sprite.anim_frames)[name] := new [{int 0;1}]
-    sprite.anim_speed[name] = speed
-
-
-def animation_play(var sprite: Sprite; name: string; loop: bool; reset: bool)
-    if reset
-        sprite.anim_index = 0.0
-    sprite.anim_current = name
-    sprite.anim_active = true
-    sprite.anim_loop = loop
-
-
-def animation_stop(var sprite: Sprite)
-    sprite.anim_active = false
-
-
-def set_index(var sprite: Sprite; index: int)
-    sprite.index = index
+def animation_play(eid: EntityId; var name: string; loop: bool; reset: bool)
+    query(eid) <| $(var sprite: CmpSprite)
+        if reset
+            sprite.anim_index = 0.0
+        sprite.anim_current = name
+        sprite.anim_active = true
+        sprite.anim_loop = loop
 
 
 def make_camera(x, y: float; border: float2)
@@ -231,50 +203,67 @@ def make_enemy(ai_type: AIType; x, y: float)
     
     create_entity <| @ ( eid, cmp ) 
 
-        var spr: Sprite?
         var hp = 0.0
+        var spritesheet_id = ""
+
+        var anim_frames : table<string; array<int>?>?
+        var anim_speed : table<string; float>
 
         cmp |> set("eid", eid)
         cmp |> apply_decs_template([[CmpTransform position = float2(x, y)]])
         
         if ai_type == AIType Walker
-            spr = new_sprite("walker", 0, float2(0.5, 0.5))
-            *spr |> add_animation("walk", new [{int 0; 1}], 0.1)
-            *spr |> animation_play("walk", true, true)
+            spritesheet_id = "walker"
+            
+            anim_frames := new {{
+                "walk" => new [{int 0; 1}]}}
+            anim_speed := {{
+                "walk" => 0.1}}
+
             cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "walk_left"]]) 
             cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
                 acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 0.0]])
             hp = 2.0
 
         elif ai_type == AIType Bat
-            spr = new_sprite("bat", 0, float2(0.5, 0.5))
-            *spr |> add_animation("fly", new [{int 0; 1; 2}], 0.1)
-            *spr |> animation_play("fly", true, true)
+            spritesheet_id = "bat"
+
+            anim_frames := new {{
+                "fly" => new [{int 0; 1; 2}] }}
+            anim_speed := {{
+                "fly" => 0.1 }}
+
             cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "fly", timer <- {{"new_dir" => 0.0}}]]) 
             cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = true,
                 acc_speed = 600.0, friction = 0.0, max_speed = 30.0]])
             hp = 1.0
 
         elif ai_type == AIType Slime
-            spr = new_sprite("slime", 0, float2(0.5, 0.5))
-            *spr |> add_animation("idle", new [{int 0; 1}], 0.1)
-            *spr |> add_animation("jump_up", new [{int 5}], 0.0)
-            *spr |> add_animation("jump_down", new [{int 6}], 0.0)
-            *spr |> animation_play("idle", true, true)
+            spritesheet_id = "slime"
+
+            anim_frames := new {{
+                "idle" => new [{int 0; 1}]; 
+                "jump_up" => new [{int 5}]; 
+                "jump_down" => new [{int 6}] }}
+                
+            anim_speed := {{
+                "idle" => 0.0; 
+                "jump_up" => 0.0; 
+                "jump_down" => 0.0 }}
+
             cmp |> apply_decs_template([[CmpAIControlled ai_type = ai_type, state = "idle", timer <- {{"jump_cooldown" => 0.0}}]]) 
             cmp |> apply_decs_template([[CmpPhysics size = 16.0, fly_mode = false, gravity = 162.0,
                 acc_speed = 300.0, friction = -4.8, max_speed = 40.0, jump_speed = 130.0]])
             hp = 1.0
 
-        cmp |> apply_decs_template([[CmpDraw sprite = spr, visible = true]]) 
+        cmp |> apply_decs_template([[CmpSprite spritesheet_id = spritesheet_id, index = 0,
+            scale = float2(1.0, 1.0), anchor = float2(0.5, 0.5), angle = 0.0, visible = true,
+            anim_frames := anim_frames,
+            anim_speed := anim_speed
+        ]]) 
         cmp |> apply_decs_template([[CmpHealth hp = hp, hit_cooldown = 0.0, dead = false]])
 
 def make_player(id: int; x, y: float)
-    var spr  = new_sprite("player", 0, float2(0.5, 0.5))
-
-    *spr |> add_animation("idle", new [{int 0}], 0.0)
-    *spr |> add_animation("jump", new [{int 1}], 0.0)
-    *spr |> add_animation("walk", new [{int 4; 5; 6; 7}], 0.2)
 
     create_entity <| @ ( eid, cmp ) 
         cmp |> set("eid", eid)
@@ -282,8 +271,20 @@ def make_player(id: int; x, y: float)
         cmp |> apply_decs_template([[CmpPlayerControlled player_id = id]])
         cmp |> apply_decs_template([[CmpPhysics size=16.0, fly_mode = false, gravity = 162.0, acc_speed = 600.0, 
                                         friction = -4.8, max_speed = 80.0, jump_speed = 130.0]])
-        cmp |> apply_decs_template([[CmpDraw sprite = spr, visible = true]]) 
+        cmp |> apply_decs_template([[CmpSprite spritesheet_id = "player", index = 0, scale = float2(1.0, 1.0), anchor = float2(0.5, 0.5), angle = 0.0, visible = true,
+        
+            anim_frames := new {{
+                "idle" => new [{int 0}]; 
+                "jump" => new [{int 1}]; 
+                "walk" => new [{int 4; 5; 6; 7}] }},
+                
+            anim_speed := {{
+                "idle" => 0.0; 
+                "jump" => 0.0; 
+                "walk" => 0.2 }}
+        ]]) 
         cmp |> apply_decs_template([[CmpHealth hp = 5.0, hit_cooldown = 0.0, dead = false]])
+
         
 
 // 'initialize' runs once when game starts and every hot-reload
@@ -300,7 +301,6 @@ def initialize
     add_spritesheet("slime", "slime.png", 16, 16)
     add_spritesheet("bat", "bat.png", 16, 16)
 
-    back := new_sprite("back",0,float2(0,0))
 
     let fworld = fopen("world.txt", "rb")
     let ss = fread(fworld) + "\n"
@@ -324,10 +324,10 @@ def initialize
             pass
 
         elif ch >= '0' && ch < '8'
-            a |> emplace(new_mapblock("tiles1", ch - int('0'), 0.0, true, false, false, 0))
+            a |> emplace(new_mapblock("tiles1", ch - int('0'), true, false, false, 0))
 
         elif ch == '_'
-            a |> emplace(new_mapblock("tiles1", 10, 0.0, true, true, false, 0))
+            a |> emplace(new_mapblock("tiles1", 10, true, true, false, 0))
 
         elif ch == 'P'
             make_player(0, block_center.x, block_center.y)
@@ -366,7 +366,7 @@ def initialize
 
 
 [decs(stage = update_actions)]
-def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; var draw: CmpDraw)
+def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; var sprite: CmpSprite; eid: EntityId)
     let left_move = get_key(VK_LEFT) ? -1.0 : 0.0
     let right_move = get_key(VK_RIGHT) ? 1.0 : 0.0
     let jump = get_key(VK_UP) ? 1.0 : 0.0
@@ -376,22 +376,22 @@ def update_player_input(var player: CmpPlayerControlled; var phys: CmpPhysics; v
 
     if vertical_move != 0.0
         if phys.on_ground
-            *draw.sprite |> animation_play("walk", true, false)
+            animation_play(eid, "walk", true, false)
         else
-            *draw.sprite |> animation_play("jump", true, false)
+            animation_play(eid, "jump", true, false)
     else
-        *draw.sprite |> animation_play("idle", true, false)
+        animation_play(eid, "idle", true, false)
 
     if vertical_move > 0.0
-        draw.sprite.scale = float2(1,1)
+        sprite.scale = float2(1,1)
     if vertical_move < 0.0
-        draw.sprite.scale = float2(-1,1)
+        sprite.scale = float2(-1,1)
 
     phys.movement = float2(vertical_move, jump + down)   
 
 
 [decs(stage = update_actions)]
-def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var phys: CmpPhysics; var draw: CmpDraw)
+def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var phys: CmpPhysics; var sprite: CmpSprite; eid: EntityId)
     let dt = get_delta_time()
 
     for k in keys(ai.timer)
@@ -407,6 +407,7 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
         player_found = true
 
     if ai.ai_type == AIType Walker
+        animation_play(eid, "walk", true, false)
 
         var dir = ai.state == "walk_left" ? -1.0 : 1.0
         var next_block = get_block(float2(transform.position.x + BLOCK_SIZE * 0.6 * dir, transform.position.y))
@@ -420,9 +421,10 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
                 ai.state = "walk_left"
     
         phys.movement = float2(dir, 0.0)  
-        draw.sprite.scale.x = dir
+        sprite.scale.x = dir
             
     elif ai.ai_type == AIType Bat
+        animation_play(eid, "fly", true, false)
 
         debug_text = ai.timer["new_dir"]
         
@@ -445,7 +447,7 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
             dir = transform.position.x > player_position.x ? -1.0 : 1.0
 
         if ai.state == "idle"
-            *draw.sprite |> animation_play("idle", true, false)
+            animation_play(eid, "idle", true, false)
             if ai.timer["jump_cooldown"] <= 0.0 && phys.on_ground
                 phys.movement = float2(dir, 1.0) 
                 ai.state = "jumping"
@@ -453,7 +455,7 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
                 phys.movement = float2(0.0, 0.0)  
             
         elif ai.state == "jumping"
-            *draw.sprite |> animation_play(phys.velocity.y < 0.0 ? "jump_up" : "jump_down", true, false)
+            animation_play(eid, phys.velocity.y < 0.0 ? "jump_up" : "jump_down", true, false)
             
             if phys.on_ground
                 ai.state = "idle"
@@ -461,7 +463,7 @@ def update_enemy_ai(var ai: CmpAIControlled; var transform: CmpTransform; var ph
 
             phys.movement.y = 0.0
             
-        draw.sprite.scale.x = dir
+        sprite.scale.x = dir
 
 
 [decs(stage = update_collisions)]
@@ -585,45 +587,62 @@ def update_camera(var cam: CmpCamera; var transform: CmpTransform)
 
 
 [decs(stage = update_animations)]
-def update_animations(var draw: CmpDraw)
+def update_animations(var sprite: CmpSprite)
     let dt = get_delta_time()
-    *draw.sprite |> update(dt)
+
+    if sprite.anim_active
+        debug(sprite.anim_frames)
+        sprite.anim_index += sprite.anim_speed[sprite.anim_current] * dt * 60.0
+        let total = length(*(*sprite.anim_frames)[sprite.anim_current])
+        let frame = int(sprite.anim_index) % total
+
+        if !sprite.anim_loop && frame >= total
+            sprite.anim_active = false
+        else
+            sprite.index = (*(*sprite.anim_frames)[sprite.anim_current])[frame]
 
 
 [decs(stage = post_update)]
-def update_health(var health: CmpHealth; var draw: CmpDraw; eid: EntityId)
+def update_health(var health: CmpHealth; var sprite: CmpSprite; eid: EntityId)
     let dt = get_delta_time()
 
     if health.hp <= 0.0
         health.dead = true
 
     if health.hit_cooldown > 0.0
-        draw.visible = int(health.hit_cooldown * 20.0) % 2 == 0
+        sprite.visible = int(health.hit_cooldown * 20.0) % 2 == 0
         health.hit_cooldown -= dt
     else
-        draw.visible = true
+        sprite.visible = true
         if health.hp <= 0.0
             delete_entity(eid)
 
 
 [decs(stage = draw_entities)]
-def draw_entities(var draw: CmpDraw; var transform: CmpTransform)
-    if draw.visible
-        *draw.sprite |> draw(view_position.x + transform.position.x, view_position.y + transform.position.y)
+def draw_entities(var sprite: CmpSprite; var transform: CmpTransform)
+    if sprite.visible
+        var txt = ""
+
+        draw_sprite(sprite.spritesheet_id, sprite.index, sprite.scale, sprite.anchor, sprite.angle,
+            float2(view_position.x + transform.position.x, view_position.y + transform.position.y), sprite.anim_active ? "{sprite.anim_current} {(*sprite.anim_frames)[sprite.anim_current]}" : "")
+
+            
 
 
 def draw_back()
     let back_offset_x = view_position.x * 0.8
     for y in range(20)
         for x in range(20)
-            *back |> draw(back_offset_x + float(x) * BACK_SIZE, float(y) * BACK_SIZE)
+            draw_sprite("back", 0, float2(1.0, 1.0), float2(0.0, 0.0), 0.0,
+                float2(back_offset_x + float(x) * BACK_SIZE, float(y) * BACK_SIZE), "")
             
 
 def draw_tiles()
     for y in range(length(map))
         for x in range(length(map[y]))
             if map[y][x] != null
-                *map[y][x].sprite |> draw(view_position.x + float(x) * BLOCK_SIZE, view_position.y + float(y) * BLOCK_SIZE)
+                draw_sprite(map[y][x].spritesheet_id, map[y][x].sprite_index, float2(1.0, 1.0), float2(0.0, 0.0), 0.0,
+                    float2(view_position.x + float(x) * BLOCK_SIZE, view_position.y + float(y) * BLOCK_SIZE), "")
 
 
 // this function is called to update game data,
@@ -656,13 +675,14 @@ def act(dt: float)
 // you can draw anything in this function
 [export]
 def draw
+
+
+    
     draw_back()
-    //commit()
 
     enable_alpha_blend()
 
     draw_tiles()
-    //commit()
 
     //text_out(100,80, "test {debug_text}", 0xFFF0F0F0)
     decs_stage("draw_entities")
